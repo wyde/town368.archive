@@ -1,12 +1,14 @@
 #!/home/webuser/pyvenv/bin/python
 # -*- coding:utf-8 -*-
+# Author: wyde
+# Contact: wyde@csie.ntu.edu.tw
 
-# loading default config
+# import project-based 的 config
 import sys
 sys.path.append("/home/webuser/daan-3hr-weather-forecast/config")
 from default import *
 
-
+# 跟抓資料有關的 import 區
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -14,9 +16,9 @@ import datetime
 import pandas as pd
 
 
-# crawl data into dataframe (Lab2)
+# 抓取資料丟到 dataframe (Lab2)
 def spider_report(d_code):
-    url = 'http://www.cwb.gov.tw/V7/forecast/town368/3Hr/'  + d_code + '.htm'
+    url = 'http://www.cwb.gov.tw/V7/forecast/town368/3Hr/'  + str(d_code) + '.htm'
     print("spider is crawling %s..." % url)
 
     try:
@@ -77,17 +79,17 @@ def spider_report(d_code):
             record_ts.append(dates[i] + ' ' + hours[k].text)
             k+=1
             weekdays.append(days[i])
-    df['record_t'] = record_ts #0
-    df['weekday'] = weekdays #1
+    df['record_t'] = record_ts #第 0 行
+    df['weekday'] = weekdays #第 1 行
     
     wxs = []
     for img in trs[2].findAll('img'):
         wxs.append(img.attrs['alt'])
-    df['wx'] = wxs #2
+    df['wx'] = wxs #第 2 行
     print("    %d:%d columns data inserted..." % (0,2))
     
     vals = []
-    for i in range(3, 10):
+    for i in range(3, 10): # 第 3 行到第 9 行除了第 8 行
         if i is not 8: # 降雨機率可能要展開 colspan == 2
             tds = trs[i].findAll('td')
             for idx, td in enumerate(tds):
@@ -99,7 +101,7 @@ def spider_report(d_code):
     
     pops = [] # probability of precipitation
     rep = 0
-    for idx, td in enumerate(trs[8].findAll('td')):
+    for idx, td in enumerate(trs[8].findAll('td')): # 第 8 行
         if idx > 0:
             if td.has_attr('colspan'):
                 rep = int(td.attrs['colspan'])
@@ -109,25 +111,28 @@ def spider_report(d_code):
                 pops.append(td.text)
     df['pop'] = pops
     print("    inserted the %dth column" % 8)
-    df.insert(0, 'station_sid', int(d_code))
-    print("    inserted the district code: %s at the beginning column" % d_code)
+    df.insert(0, 'station_sid', d_code)
+    print("    inserted the district code: %d at the beginning column" % d_code)
     print("crawling completed, return dataframe\n")
     return df
 
+# SQLAlchemy 和 MySQL 參數 import 區
 from sqlalchemy import DateTime, TIMESTAMP, text, Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship, sessionmaker
 
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine
 Base = declarative_base()
 
-from sqlalchemy import create_engine
-engine_para = ('mysql+mysqldb://' + 
-                MYSQL_CONFIG['user'] + ':' +
-                MYSQL_CONFIG['passwd'] + '@' +
-                MYSQL_CONFIG['host'] + ':3306/' +
-                MYSQL_CONFIG['db'] + '?charset=' +
-                MYSQL_CONFIG['charset'])
-engine = create_engine(engine_para, max_overflow=5)
+
+# SQLAlchemy 的 Class 們
+class Station(Base):
+    __tablename__ = 'station'
+    sid = Column(Integer, primary_key=True, autoincrement=False)
+    district = Column(String(8), unique=True)
+    
+    def __repr__(self):
+        return 'sid: %d, district: %s' % (self.sid, self.district)
 
 class Report(Base):
     __tablename__ = 'report'
@@ -146,31 +151,95 @@ class Report(Base):
     pop = Column(String(4))
     ci = Column(String(8))
 
-def recreate_table_report():
+    def __repr__(self):
+        return """rid: %d, \nstation_sid: %d, \nupdate_t: %s, \nrecord_t: %s, \nweekday: %s, \nwx: %s, \
+                \nt: %d, \nat: %d, \nbeaufort: %s, \nwind_dir: %s, \nrh: %s, \npop: %s, \nci: %s""" \
+                % (self.rid, self.station_sid, str(self.update_t), str(self.record_t), self.weekday, \
+                self.wx, self.t, self.at, self.beaufort, self.wind_dir, self.rh, self.pop, self.ci)
+
+
+# function 們
+def recreate_table_report(engine):
     if engine.dialect.has_table(engine, 'report'):
         Base.metadata.tables['report'].drop(engine)
         print('table report has been droped')
     Base.metadata.tables['report'].create(engine)
     print('table report has been created...')
     
-def insert_df_into_mysql(df):
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    df.to_sql(name='report', con=engine, if_exists='append', index=False)
-    session.close()
+#def insert_df_into_mysql(df):
+#    Session = sessionmaker(bind=engine)
+#    session = Session()
+#    df.to_sql(name='report', con=engine, if_exists='append', index=False)
+#    session.close()
 
 def autosave_df_to_csv(df):
-    outfile_csv = datetime.datetime.now().strftime("%Y%m%d%H%m%S_dataframe.csv")
+    outfile_csv = datetime.datetime.now().strftime("./csv/%Y%m%d%H%m%S_dataframe.csv")
     df.to_csv(outfile_csv, sep=',', encoding='utf-8', index=False)
     print('csv file %s saved\n' % outfile_csv)
     
-if __name__ == '__main__':
-    #recreate_table_report()
-    df = spider_report('6300300')
-    autosave_df_to_csv(df)
-    #insert_df_into_mysql(df)
-    #infile_csv = '20170823170800_dataframe.csv'
-    #df = pd.read_csv(infile_csv, sep=',')
-    
-    
+def update_mysql_data(ta, row):
+    ta.wx = row['wx']
+    ta.t = row['t']
+    ta.at = row['at']
+    ta.beaufort = row['beaufort']
+    ta.wind_dir = row['wind_dir']
+    ta.rh = row['rh']
+    ta.pop = row['pop']
+    ta.ci = row['ci']
 
+def add_mysql_data(row):
+    ta = Report()
+    ta.station_sid = row['station_sid']
+    ta.record_t = row['record_t']
+    ta.weekday = row['weekday']
+    ta.wx = row['wx']
+    ta.t = row['t']
+    ta.at = row['at']
+    ta.beaufort = row['beaufort']
+    ta.wind_dir = row['wind_dir']
+    ta.rh = row['rh']
+    ta.pop = row['pop']
+    ta.ci = row['ci']
+    return ta
+
+if __name__ == '__main__':
+    engine_para = ('mysql+mysqldb://' + 
+                MYSQL_CONFIG['user'] + ':' +
+                MYSQL_CONFIG['passwd'] + '@' +
+                MYSQL_CONFIG['host'] + ':3306/' +
+                MYSQL_CONFIG['db'] + '?charset=' +
+                MYSQL_CONFIG['charset'])
+    engine = create_engine(engine_para, max_overflow=5)
+
+    # 開啟 mysql 連線
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # 測試用的 function，重建 report table
+    # 注意!!!!!!資料會消失
+    # recreate_table_report(engine)
+
+    # 大安區碼：6300300
+    district = '台北市大安區'
+    station = session.query(Station).filter_by(district=district).all()[0]
+    df = spider_report(station.sid)
+    
+    # insert or update data in mysql schema each row a time
+    for idx, row in df.iterrows():
+        record_t = row['record_t']
+        try:
+            record = session.query(Report).filter_by(record_t=record_t).all()[0]
+            update_mysql_data(record, row)
+            session.commit()
+            print("%s has been found in mysql report table" % record_t)
+        except:
+            record = add_mysql_data(row)
+            session.add(record)
+            session.commit()
+            print("%s not found, new record has been created" % record_t)
+
+    # 關掉 mysql 連線
+    session.close()
+
+    # 生成測資，自動依日期時間存檔
+    # autosave_df_to_csv(df)
