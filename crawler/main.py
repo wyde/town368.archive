@@ -19,16 +19,17 @@ import pandas as pd
 # 抓取資料丟到 dataframe (Lab2)
 def spider_report(d_code):
     url = 'http://www.cwb.gov.tw/V7/forecast/town368/3Hr/'  + str(d_code) + '.htm'
-    print("spider is crawling %s..." % url)
+    print("\nspider is crawling %s..." % url)
 
     try:
         req = requests.get(url)
     except:
         print('WARNING: url fetching error, please try again and check district code...')
         sys.exit()
-
-    if req.status_code != 200:
-        print('WARNING: http status code returns %d...' % req.status_code)
+    
+    rscode = req.status_code
+    if not (rscode < 300 and rscode > 199):
+        print('WARNING: http status code returns %d...' % rscode)
         sys.exit()
 
     req.encoding = 'utf-8' # 不指定會發生編碼錯誤
@@ -113,7 +114,7 @@ def spider_report(d_code):
     print("    inserted the %dth column" % 8)
     df.insert(0, 'station_sid', d_code)
     print("    inserted the district code: %d at the beginning column" % d_code)
-    print("crawling completed, return dataframe\n")
+    print("crawling completed, return dataframe")
     return df
 
 # SQLAlchemy 和 MySQL 參數 import 區
@@ -221,22 +222,25 @@ if __name__ == '__main__':
 
     # 大安區碼：6300300
     district = '台北市大安區'
+    print("\ncrawling target: " + district)
     station = session.query(Station).filter_by(district=district).all()[0]
     df = spider_report(station.sid)
     
     # insert or update data in mysql schema each row a time
+    print("\nupdating mysql...")
     for idx, row in df.iterrows():
         record_t = row['record_t']
         try:
             record = session.query(Report).filter_by(record_t=record_t).all()[0]
             update_mysql_data(record, row)
             session.commit()
-            print("%s has been found in mysql report table" % record_t)
+            print("    %s has been found in mysql report table" % record_t)
         except:
             record = add_mysql_data(row)
             session.add(record)
             session.commit()
-            print("%s not found, new record has been created" % record_t)
+            print("    %s not found, new record has been created" % record_t)
+    print("updated, closing session\n")
 
     # 關掉 mysql 連線
     session.close()
