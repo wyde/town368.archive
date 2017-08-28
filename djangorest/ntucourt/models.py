@@ -25,6 +25,7 @@ class Report(models.Model):
 
 class Station(models.Model):
     sid = models.IntegerField(primary_key=True)
+    city = models.CharField(max_length=8, blank=True, null=True)
     district = models.CharField(unique=True, max_length=8, blank=True, null=True)
 
     class Meta:

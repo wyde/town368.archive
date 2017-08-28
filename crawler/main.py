@@ -25,17 +25,17 @@ def spider_report(d_code):
         req = requests.get(url)
     except:
         print('WARNING: url fetching error, please try again and check district code...')
-        sys.exit()
+        return None
     
     rscode = req.status_code
     if not (rscode < 300 and rscode > 199):
         print('WARNING: http status code returns %d...' % rscode)
-        sys.exit()
+        return None
 
     req.encoding = 'utf-8' # 不指定會發生編碼錯誤
     soup = BeautifulSoup(req.text, 'html.parser')
     trs = soup.find_all('tr')
-    print("    fetching data from completed, parsing...")
+    #print("    fetching data from completed, parsing...")
     
     columns = ['record_t', # 0
                'weekday', # 1
@@ -48,7 +48,7 @@ def spider_report(d_code):
                'pop', #8 
                'ci'] # 9
     df = pd.DataFrame(columns=columns)
-    print("    building empty dataframe, there're %d columns in dataframe" % len(columns))
+    #print("    building empty dataframe, there're %d columns in dataframe" % len(columns))
 
     year_s = []
     year_s.append("%d" % datetime.datetime.now().year)
@@ -68,7 +68,7 @@ def spider_report(d_code):
             month_n_date = re.findall('\d+', td.text)
             dates.append(year_s[k] + '-' + month_n_date[0] + '-' + month_n_date[1])
             k+=1
-    print("    cleaned up time information...")
+    #print("    cleaned up time information...")
     
     # insert data into dataframe
     record_ts = []
@@ -77,7 +77,7 @@ def spider_report(d_code):
     k = 0
     for i in range(0, len(colspans)):
         for j in range(0, int(colspans[i])):
-            record_ts.append(dates[i] + ' ' + hours[k].text)
+            record_ts.append(dates[i] + 'T' + hours[k].text)
             k+=1
             weekdays.append(days[i])
     df['record_t'] = record_ts #第 0 行
@@ -87,7 +87,7 @@ def spider_report(d_code):
     for img in trs[2].findAll('img'):
         wxs.append(img.attrs['alt'])
     df['wx'] = wxs #第 2 行
-    print("    %d:%d columns data inserted..." % (0,2))
+    #print("    %d:%d columns data inserted..." % (0,2))
     
     vals = []
     for i in range(3, 10): # 第 3 行到第 9 行除了第 8 行
@@ -98,7 +98,7 @@ def spider_report(d_code):
                     vals.append(td.text)
             df.iloc[:,i] = vals
             vals = []
-    print("    %d:%d columns data inserted...except %d" % (3, 9, 8))
+    #print("    %d:%d columns data inserted...except %d" % (3, 9, 8))
     
     pops = [] # probability of precipitation
     rep = 0
@@ -111,9 +111,9 @@ def spider_report(d_code):
             for i in range(0, rep):
                 pops.append(td.text)
     df['pop'] = pops
-    print("    inserted the %dth column" % 8)
+    #print("    inserted the %dth column" % 8)
     df.insert(0, 'station_sid', d_code)
-    print("    inserted the district code: %d at the beginning column" % d_code)
+    #print("    inserted the district code: %d at the beginning column" % d_code)
     print("crawling completed, return dataframe")
     return df
 
@@ -130,10 +130,11 @@ Base = declarative_base()
 class Station(Base):
     __tablename__ = 'station'
     sid = Column(Integer, primary_key=True, autoincrement=False)
-    district = Column(String(8), unique=True)
+    city = Column(String(8))
+    district = Column(String(8))
     
     def __repr__(self):
-        return 'sid: %d, district: %s' % (self.sid, self.district)
+        return 'sid: %d, city: %s, district: %s' % (self.sid, self.city, self.district)
 
 class Report(Base):
     __tablename__ = 'report'
@@ -141,7 +142,7 @@ class Report(Base):
     #station_sid = Column(Integer, ForeignKey('station.sid'))
     station_sid = Column(Integer)
     update_t = Column(TIMESTAMP, server_default=text('CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'))
-    record_t = Column(DateTime)
+    record_t = Column(TIMESTAMP)
     weekday = Column(String(3))
     wx = Column(String(32))
     t = Column(Integer)
@@ -178,7 +179,7 @@ def autosave_df_to_csv(df):
     df.to_csv(outfile_csv, sep=',', encoding='utf-8', index=False)
     print('csv file %s saved\n' % outfile_csv)
     
-def update_mysql_data(ta, row):
+def update_mysql_data(row, ta):
     ta.wx = row['wx']
     ta.t = row['t']
     ta.at = row['at']
@@ -212,34 +213,41 @@ if __name__ == '__main__':
                 MYSQL_CONFIG['charset'])
     engine = create_engine(engine_para, max_overflow=5)
 
-    # 開啟 mysql 連線
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
     # 測試用的 function，重建 report table
     # 注意!!!!!!資料會消失
     # recreate_table_report(engine)
 
-    # 大安區碼：6300300
-    district = '台北市大安區'
-    print("\ncrawling target: " + district)
-    station = session.query(Station).filter_by(district=district).all()[0]
-    df = spider_report(station.sid)
+    # 開啟 mysql 連線
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    # 台北市:大安區碼：6300300
+#    kwargs = {'city':'台北市', 'district':'大安區'}
+#    station = session.query(Station).filter_by(**kwargs).all()[0]
+#    print("\ncrawling target: " + kwargs['city'] + kwargs['district'])
+#    df = spider_report(station.sid)
     
     # insert or update data in mysql schema each row a time
     print("\nupdating mysql...")
-    for idx, row in df.iterrows():
-        record_t = row['record_t']
-        try:
-            record = session.query(Report).filter_by(record_t=record_t).all()[0]
-            update_mysql_data(record, row)
-            session.commit()
-            print("    %s has been found in mysql report table" % record_t)
-        except:
-            record = add_mysql_data(row)
-            session.add(record)
-            session.commit()
-            print("    %s not found, new record has been created" % record_t)
+    stations = session.query(Station).all()
+    for station in stations:
+        print(station.city + station.district)
+        df = spider_report(station.sid)
+        if df is not None:
+            for idx, row in df.iterrows():
+                record_t = row['record_t']
+                station_sid = row['station_sid']
+                kwargs = {'record_t':record_t, 'station_sid':station_sid}
+                try:
+                    record = session.query(Report).filter_by(**kwargs).all()[0]
+                    update_mysql_data(row, record)
+                    session.commit()
+                    print("    %s has been found in mysql report table" % record_t)
+                except:
+                    record = add_mysql_data(row)
+                    session.add(record)
+                    session.commit()
+                    print("    %s not found, new record has been created" % record_t)
     print("updated, closing session\n")
 
     # 關掉 mysql 連線
