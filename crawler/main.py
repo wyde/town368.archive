@@ -19,7 +19,7 @@ import pandas as pd
 # 抓取資料丟到 dataframe (Lab2)
 def spider_report(d_code):
     url = 'http://www.cwb.gov.tw/V7/forecast/town368/3Hr/'  + str(d_code) + '.htm'
-    print("\nspider is crawling %s..." % url)
+    print("spider is crawling %s..." % url)
 
     try:
         req = requests.get(url)
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     print("\nupdating mysql...")
     stations = session.query(Station).all()
     for station in stations:
-        print(station.city + station.district)
+        print('\nScanning: ' + station.city + station.district)
         df = spider_report(station.sid)
         if df is not None:
             for idx, row in df.iterrows():
