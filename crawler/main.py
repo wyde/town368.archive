@@ -13,10 +13,29 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import datetime
+import copy
+import re
 import pandas as pd
 
 
 # 抓取資料丟到 dataframe (Lab2)
+def spider_station(infile):
+    xl = pd.ExcelFile(infile)
+    dfp = xl.parse('主計總處與內政部對照表')
+    header = dfp.iloc[2]
+    dfc = dfp[3:].copy().copy()
+    dfc = dfc.rename(columns = header)
+    dfd = dfc[['縣市名稱', '區鄉鎮名稱', '區里代碼']].drop_duplicates()
+    dfd['區里代碼'] = dfd['區里代碼'].apply(lambda x: int(re.findall('\d+', str(x))[0]))
+    ## dfc 裡有些區里代碼有亂碼，透過 regular expression 清乾淨再轉回 int
+    dfd = dfd.reset_index(drop=True)
+    df = dfd.copy().copy()
+    cols = df.columns.tolist()
+    cols = cols[-1:] + cols[:-1] # 等價 cols[2:] + cols[:2]
+    df = df[cols]
+    df.columns = ['sid', 'city', 'district']
+    return df
+
 def spider_report(d_code):
     url = 'http://www.cwb.gov.tw/V7/forecast/town368/3Hr/'  + str(d_code) + '.htm'
     print("spider is crawling %s..." % url)
@@ -161,12 +180,13 @@ class Report(Base):
 
 
 # function 們
-def recreate_table_report(engine):
-    if engine.dialect.has_table(engine, 'report'):
-        Base.metadata.tables['report'].drop(engine)
-        print('table report has been droped')
-    Base.metadata.tables['report'].create(engine)
-    print('table report has been created...')
+
+def recreate_table(engine, table):
+    if engine.dialect.has_table(engine, table):
+        Base.metadata.tables[table].drop(engine)
+        print('table ' + table +  ' has been droped')
+    Base.metadata.tables[table].create(engine)
+    print('table ' + table +  ' has been created...')
     
 #def insert_df_into_mysql(df):
 #    Session = sessionmaker(bind=engine)
@@ -213,30 +233,38 @@ if __name__ == '__main__':
                 MYSQL_CONFIG['charset'])
     engine = create_engine(engine_para, max_overflow=5)
 
-    # 測試用的 function，重建 report table
+    # 第一次用先建立全部 table
+    # Base.metadata.create_all(engine) # create all tables
+    print('all tables created')
+
+    # 測試用的 function，重建 table
     # 注意!!!!!!資料會消失
-    # recreate_table_report(engine)
+    #recreate_table(engine, 'station')
+    #recreate_table(engine, 'report')
 
     # 開啟 mysql 連線
     Session = sessionmaker(bind=engine)
     session = Session()
-
-    # 台北市:大安區碼：6300300
-#    kwargs = {'city':'台北市', 'district':'大安區'}
-#    station = session.query(Station).filter_by(**kwargs).all()[0]
-#    print("\ncrawling target: " + kwargs['city'] + kwargs['district'])
-#    df = spider_report(station.sid)
     
+    # 先抓 station，station 的 excel 表事先已下載
+    # csv、xlsx 先用 wget 載好再處理
+#    print("dealing with station data")
+#    df = spider_station('./xlsx/comparison_table.xlsx')
+#    try:
+#        df.to_sql(name='station', con=engine, if_exists = 'append', index=False)
+#    except:
+#        print('WARNING: table station might already exist')
+
     # insert or update data in mysql schema each row a time
-    print("\nupdating mysql...")
-    stations = session.query(Station).all()
+    print("\nupdating mysql...only in 台北市")
+    stations = session.query(Station).filter_by(city='台北市').all()
     for station in stations:
         print('\nScanning: ' + station.city + station.district)
         df = spider_report(station.sid)
         if df is not None:
             for idx, row in df.iterrows():
                 record_t = row['record_t']
-                station_sid = row['station_sid']
+                station_sid = row['station_sid'] #台北市大安區碼 6300300
                 kwargs = {'record_t':record_t, 'station_sid':station_sid}
                 try:
                     record = session.query(Report).filter_by(**kwargs).all()[0]
