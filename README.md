@@ -1,16 +1,7 @@
 # town368 REST API 
 本 API 蒐集 2017.9.4. 以後臺灣 368 個鄉鎮天氣預報歷史資料
-- [API endpoint: https://town368.csie.ntu.edu.tw](https://town368.csie.ntu.edu.tw)
-- [demo](http://dadacho.com)
-
-## 資料來源
-交通部中央氣象局在地天氣報馬仔，全台 368 鄉鎮
-[範例：台北市大安區公所](http://www.cwb.gov.tw/V7/forecast/town368/towns/6300300.htm)
-
-相關資料-政府資料開放平臺 data.gov.tw
-1. [鄉鎮天氣預報-台灣未來2天天氣預報(9307)](https://data.gov.tw/dataset/9307)
-2. [鄉鎮天氣預報-全臺灣各鄉鎮市區預報資料(9309)](https://data.gov.tw/dataset/9309)
-> 上述兩筆資料僅提供即時資料的 XML 與 PDF，且資料集描述與資料內容不符，已回報於討論區
+- [API root endpoint](https://town368.csie.ntu.edu.tw)
+- [document](https://wyde.github.io/town368)
 
 ## 技術棧
 - interactive shell：jupyter notebook
