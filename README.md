@@ -22,7 +22,7 @@
 
 ## 環境
 - 開發：Cloud9 (Ubuntu14.04 Container)
-- 生產：CentOS7
+- 生產：CentOS 7
 
 ## 開發方向
 - db 換成 PostgresSQL
